@@ -85,9 +85,8 @@ if args.resume:
     start_epoch = checkpoint['epoch']
 
 criterion = nn.CrossEntropyLoss()
-base_optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 optimizer = SAM(net.parameters(), optim.SGD, lr=args.lr, momentum=0.9, weight_decay=5e-4)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(base_optimizer, T_max=200)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer.base_optimizer, T_max=200)
 
 
 # Training
@@ -99,20 +98,14 @@ def train(epoch):
     total = 0
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
-        
-        # Compute initial gradients
-        optimizer.zero_grad()
         outputs = net(inputs)
         loss = criterion(outputs, targets)
         loss.backward()
-        
-        # SAM step with closure
-        def closure():
-            loss = criterion(net(inputs), targets)
-            loss.backward()
-            return loss
-        
-        optimizer.step(closure)
+        optimizer.first_step(zero_grad=True)
+
+        # Second forward-backward pass (for SAM second_step)
+        criterion(net(inputs), targets).backward()
+        optimizer.second_step(zero_grad=True)
 
         train_loss += loss.item()
         _, predicted = outputs.max(1)
